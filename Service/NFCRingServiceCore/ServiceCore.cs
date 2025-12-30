@@ -26,6 +26,7 @@ namespace NFCRing.Service.Core
         private ServiceState state = ServiceState.Stopped;
         public static SystemState SystemStatus = new SystemState();
         private Config ApplicationConfiguration;
+        private readonly LdapTokenStore _ldapTokenStore = new LdapTokenStore();
 
         TcpListener credentialListener;
         Thread credentialListenThread;
@@ -152,21 +153,28 @@ namespace NFCRing.Service.Core
                         }
                         else
                         {
-                            // check config
-                            foreach (User u in ApplicationConfiguration.Users)
+                            if (_ldapTokenStore.Enabled)
                             {
-                                string hashedToken = Crypto.Hash(Crypto.Hash(id) + u.Salt);
-                                foreach (Event e in u.Events)
+                                HandleLdapTokenDown(id);
+                            }
+                            else
+                            {
+                                // check config
+                                foreach (User u in ApplicationConfiguration.Users)
                                 {
-                                    if (hashedToken == e.Token)
+                                    string hashedToken = Crypto.Hash(Crypto.Hash(id) + u.Salt);
+                                    foreach (Event e in u.Events)
                                     {
-                                        foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
+                                        if (hashedToken == e.Token)
                                         {
-                                            if (plugin.Value.GetPluginName() == e.PluginName)
+                                            foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
                                             {
-                                                plugin.Value.NCFRingDown(id, e.Parameters, SystemStatus);
+                                                if (plugin.Value.GetPluginName() == e.PluginName)
+                                                {
+                                                    plugin.Value.NCFRingDown(id, e.Parameters, SystemStatus);
 
-                                                Log("Plugin " + plugin.Value.GetPluginName() + " passed TagDown event");
+                                                    Log("Plugin " + plugin.Value.GetPluginName() + " passed TagDown event");
+                                                }
                                             }
                                         }
                                     }
@@ -187,20 +195,27 @@ namespace NFCRing.Service.Core
                     }
                     else
                     {
-                        // check config
-                        foreach (User u in ApplicationConfiguration.Users)
+                        if (_ldapTokenStore.Enabled)
                         {
-                            string hashedToken = Crypto.Hash(Crypto.Hash(id) + u.Salt);
-                            foreach (Event e in u.Events)
+                            HandleLdapTokenUp(id);
+                        }
+                        else
+                        {
+                            // check config
+                            foreach (User u in ApplicationConfiguration.Users)
                             {
-                                if (hashedToken == e.Token)
+                                string hashedToken = Crypto.Hash(Crypto.Hash(id) + u.Salt);
+                                foreach (Event e in u.Events)
                                 {
-                                    foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
+                                    if (hashedToken == e.Token)
                                     {
-                                        if (plugin.Value.GetPluginName() == e.PluginName)
+                                        foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
                                         {
-                                            plugin.Value.NCFRingUp(id, e.Parameters, SystemStatus);
-                                            Log("Plugin " + plugin.Value.GetPluginName() + " passed TagUp event");
+                                            if (plugin.Value.GetPluginName() == e.PluginName)
+                                            {
+                                                plugin.Value.NCFRingUp(id, e.Parameters, SystemStatus);
+                                                Log("Plugin " + plugin.Value.GetPluginName() + " passed TagUp event");
+                                            }
                                         }
                                     }
                                 }
@@ -431,7 +446,16 @@ namespace NFCRing.Service.Core
                                     // return the current configuration for this user
                                     bool userfound = false;
                                     UserServerState uss = new UserServerState();
-                                    if (ApplicationConfiguration.Users != null)
+                                    if (_ldapTokenStore.Enabled)
+                                    {
+                                        var user = _ldapTokenStore.GetUserState(nm.Username);
+                                        if (user != null)
+                                        {
+                                            uss.UserConfiguration = user;
+                                            userfound = true;
+                                        }
+                                    }
+                                    else if (ApplicationConfiguration.Users != null)
                                     {
                                         foreach (User u in ApplicationConfiguration.Users)
                                         {
@@ -545,6 +569,24 @@ namespace NFCRing.Service.Core
         {
             var token = networkMessage.Token;
 
+            if (_ldapTokenStore.Enabled)
+            {
+                var username = networkMessage.Username;
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    if (_ldapTokenStore.TryGetByToken(token, out var record))
+                    {
+                        username = record.Username;
+                    }
+                }
+
+                if (!_ldapTokenStore.UpdateFriendlyName(username, token, networkMessage.TokenFriendlyName))
+                {
+                    Log("Failed to update LDAP token friendly name.");
+                }
+                return;
+            }
+
             var isUpdated = false;
 
             if (ApplicationConfiguration.Users != null)
@@ -610,6 +652,15 @@ namespace NFCRing.Service.Core
 
         private void RemoveToken(string user, string token)
         {
+            if (_ldapTokenStore.Enabled)
+            {
+                if (!_ldapTokenStore.RemoveToken(user, token))
+                {
+                    Log("LDAP token removal failed.");
+                }
+                return;
+            }
+
             //string hashedToken = Crypto.Hash(rawToken);
 
             foreach (User u in ApplicationConfiguration.Users)
@@ -660,6 +711,17 @@ namespace NFCRing.Service.Core
 
         private string RegisterToken(string user, string rawToken, string name)
         {
+            if (_ldapTokenStore.Enabled)
+            {
+                if (!_ldapTokenStore.RegisterToken(user, rawToken, name))
+                {
+                    Log("LDAP token registration failed.");
+                    return null;
+                }
+
+                return rawToken;
+            }
+
             // hash the token
             // remove the token registered anywhere else
             User target = null;
@@ -698,6 +760,15 @@ namespace NFCRing.Service.Core
 
         private void RegisterCredential(string user, string password, string tokenId, string pluginName)
         {
+            if (_ldapTokenStore.Enabled)
+            {
+                if (!_ldapTokenStore.StoreCredential(user, tokenId, password))
+                {
+                    Log("LDAP credential registration failed.");
+                }
+                return;
+            }
+
             string loggedInUser = GetCurrentUsername();
             string domain = "";
                 // do some work
@@ -740,6 +811,66 @@ namespace NFCRing.Service.Core
             SaveConfig();
             // make the registration credential provider not active on the system anymore
             //UseNFCCredential();
+        }
+
+        private void HandleLdapTokenDown(string token)
+        {
+            if (!_ldapTokenStore.TryGetByToken(token, out var record))
+            {
+                Log("LDAP token not found.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(record.EncryptedPassword))
+            {
+                Log("LDAP credential missing for token.");
+                return;
+            }
+
+            var parameters = new Dictionary<string, object>
+            {
+                { "Username", record.Username },
+                { "Password", record.EncryptedPassword }
+            };
+
+            if (!string.IsNullOrWhiteSpace(record.Domain))
+            {
+                parameters["Domain"] = record.Domain;
+            }
+
+            foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
+            {
+                if (plugin.Value.GetPluginName() == ServiceSettings.LdapUnlockPluginName)
+                {
+                    plugin.Value.NCFRingDown(token, parameters, SystemStatus);
+                    Log("Plugin " + plugin.Value.GetPluginName() + " passed LDAP TagDown event");
+                    break;
+                }
+            }
+        }
+
+        private void HandleLdapTokenUp(string token)
+        {
+            if (!ServiceSettings.LdapLockOnRemove)
+                return;
+
+            if (!_ldapTokenStore.TryGetByToken(token, out var record))
+                return;
+
+            var parameters = new Dictionary<string, object>
+            {
+                { "Username", record.Username }
+            };
+
+            foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
+            {
+                if (plugin.Value.GetPluginName() == ServiceSettings.LdapLockPluginName)
+                {
+                    plugin.Value.NCFRingUp(token, parameters, SystemStatus);
+                    Log("Plugin " + plugin.Value.GetPluginName() + " passed LDAP TagUp event");
+                    break;
+                }
+            }
         }
 
         public static void Log(string message)

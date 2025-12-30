@@ -1,10 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace NFCRing.Service.Common
 {
@@ -43,7 +39,7 @@ namespace NFCRing.Service.Common
             {
                 if (!client.Connected)
                 {
-                    client.Connect(IPAddress.Loopback, 28417);
+                    client.Connect(ServiceSettings.RegistrationHost, ServiceSettings.RegistrationPort);
                 }
                 client.GetStream().Write(Encoding.UTF8.GetBytes(message), 0, message.Length);
                 return message.Length;

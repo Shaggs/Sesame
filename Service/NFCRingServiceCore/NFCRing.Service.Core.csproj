@@ -61,6 +61,7 @@
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.ComponentModel.DataAnnotations" />
     <Reference Include="System.Core" />
+    <Reference Include="System.DirectoryServices" />
     <Reference Include="System.Management" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -70,6 +71,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Classes\Client.cs" />
+    <Compile Include="LdapTokenStore.cs" />
     <Compile Include="SCardContext.cs" />
     <Compile Include="SerialContext.cs" />
     <Compile Include="ServiceCore.cs" />

@@ -59,3 +59,39 @@ There are three separate parts to this, if any fails then you will need to check
 
 Congratulations, you have now setup NFC Fence. Swipe your ring on your NFC reader to lock the PC. Swipe again to unlock.
 
+## Centralized DC/LDAP setup (server + clients)
+
+This section describes how to run a centralized service on a domain controller (DC) and have client machines use it for token resolution. The DC stores token mappings in LDAP attributes and the clients forward registration/login requests to the DC service.
+
+### Server (DC) setup
+
+1. Install the service on the DC as described in **Installing the Service** above.
+2. Configure LDAP and network settings in ``\Sesame\bin\Release\Service\NFCRingServiceHost.exe.config`` (or ``Service/NFCRingServiceHost/App.config`` in source):
+   * ``NFCRing.Ldap.Enabled`` = ``true``
+   * ``NFCRing.Ldap.Path`` = LDAP path (example: ``LDAP://DC=example,DC=local``)
+   * ``NFCRing.Ldap.BindUser`` and ``NFCRing.Ldap.BindPassword`` = service account (or leave blank to use the service account context)
+   * ``NFCRing.Ldap.TokenAttribute`` = attribute to store RFID tokens (default ``extensionAttribute1``)
+   * ``NFCRing.Ldap.PasswordMapAttribute`` = attribute to store encrypted password map (default ``extensionAttribute2``)
+   * ``NFCRing.Ldap.FriendlyNameMapAttribute`` = attribute to store friendly names (default ``extensionAttribute3``)
+   * ``NFCRing.Ldap.UserAttribute`` = user lookup attribute (default ``sAMAccountName``)
+   * ``NFCRing.Ldap.Domain`` = optional domain prefix to include with unlock parameters
+3. Ensure the service is listening for clients on TCP ports:
+   * Registration: ``NFCRing.RegistrationPort`` (default ``28417``)
+   * Credential provider: ``NFCRing.CredentialPort`` (default ``28416``)
+4. Open the firewall for the registration port on the DC so clients can connect.
+
+### Client setup
+
+1. Install the service and credential provider on each client as described above.
+2. Update the client app settings to point to the DC:
+   * ``\Sesame\bin\Release\UI\NFCRing.UI.View.exe.config`` (or ``UI/NFCRing.UI.View/App.config`` in source)
+   * ``\Sesame\bin\Release\Management\CredentialRegistration.exe.config`` (or ``Management/RegistryWriter/App.config`` in source)
+   * Set ``NFCRing.RegistrationHost`` to the DC hostname or IP.
+   * Confirm ``NFCRing.RegistrationPort`` matches the DC service port.
+3. Use the UI to register a token; the DC will store the token and encrypted credential mapping in LDAP.
+
+### Notes
+
+* Token maps are stored in LDAP attributes as JSON dictionaries keyed by token.
+* The unlock action uses the plugin name configured by ``NFCRing.Ldap.UnlockPlugin`` (default ``Unlock Workstation (network)``).
+
