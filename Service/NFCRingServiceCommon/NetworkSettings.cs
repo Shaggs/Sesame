@@ -39,6 +39,21 @@ namespace NFCRing.Service.Common
             get { return GetBool("NFCRing.EnableRemoteTokenLookup", true); }
         }
 
+        public static bool EnableActiveDirectoryCardAttributes
+        {
+            get { return GetBool("NFCRing.EnableActiveDirectoryCardAttributes", false); }
+        }
+
+        public static string ActiveDirectoryCardAttribute
+        {
+            get { return GetString("NFCRing.ADCardAttribute", "extensionAttribute10"); }
+        }
+
+        public static string ActiveDirectoryCardHashSalt
+        {
+            get { return GetString("NFCRing.ADCardHashSalt", ""); }
+        }
+
         public static bool IsRemoteServiceHostConfigured
         {
             get

@@ -237,6 +237,15 @@ namespace NFCRing.Service.Core
             if (ApplicationConfiguration == null || ApplicationConfiguration.Users == null)
                 return null;
 
+            UserServerState directMatch = ResolveTokenFromConfiguredUsers(id);
+            if (directMatch != null)
+                return directMatch;
+
+            return ResolveTokenFromActiveDirectory(id);
+        }
+
+        private UserServerState ResolveTokenFromConfiguredUsers(string id)
+        {
             foreach (User u in ApplicationConfiguration.Users)
             {
                 string hashedToken = Crypto.Hash(Crypto.Hash(id) + u.Salt);
@@ -260,6 +269,83 @@ namespace NFCRing.Service.Core
             }
 
             return null;
+        }
+
+        private UserServerState ResolveTokenFromActiveDirectory(string id)
+        {
+            if (!NetworkSettings.EnableActiveDirectoryCardAttributes)
+                return null;
+
+            try
+            {
+                string username = ActiveDirectoryCardStore.FindUsernameByCard(id);
+                if (String.IsNullOrEmpty(username))
+                    return null;
+
+                User configuredUser = FindConfiguredUser(username);
+                if (configuredUser == null)
+                {
+                    Log("AD token matched " + username + " but no Sesame user configuration was found");
+                    return null;
+                }
+
+                string hashedToken = Crypto.Hash(Crypto.Hash(id) + configuredUser.Salt);
+                List<Event> matchingEvents = configuredUser.Events == null
+                    ? new List<Event>()
+                    : configuredUser.Events.Where(e => e.Token == hashedToken).ToList();
+
+                if (matchingEvents.Count == 0)
+                {
+                    Log("AD token matched " + username + " but no plugin assignment was found");
+                    return null;
+                }
+
+                return new UserServerState()
+                {
+                    UserConfiguration = new User()
+                    {
+                        Username = configuredUser.Username,
+                        Salt = configuredUser.Salt,
+                        Tokens = configuredUser.Tokens,
+                        Events = matchingEvents
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                Log("AD token lookup failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        private User FindConfiguredUser(string username)
+        {
+            foreach (User user in ApplicationConfiguration.Users)
+            {
+                if (String.Equals(user.Username, username, StringComparison.OrdinalIgnoreCase))
+                    return user;
+
+                if (String.Equals(GetAccountName(user.Username), GetAccountName(username), StringComparison.OrdinalIgnoreCase))
+                    return user;
+            }
+
+            return null;
+        }
+
+        private string GetAccountName(string username)
+        {
+            if (String.IsNullOrEmpty(username))
+                return "";
+
+            int slashIndex = username.LastIndexOf('\\');
+            if (slashIndex > -1 && slashIndex < username.Length - 1)
+                return username.Substring(slashIndex + 1);
+
+            int atIndex = username.IndexOf('@');
+            if (atIndex > 0)
+                return username.Substring(0, atIndex);
+
+            return username;
         }
 
         public void Stop()
@@ -747,8 +833,25 @@ namespace NFCRing.Service.Core
             string dht = Crypto.Hash(hashedToken + target.Salt);
             Log("Token registered");
             target.Tokens.Add(dht, name);
+            WriteTokenToActiveDirectory(user, rawToken);
             SaveConfig();
             return dht;
+        }
+
+        private void WriteTokenToActiveDirectory(string user, string rawToken)
+        {
+            if (!NetworkSettings.EnableActiveDirectoryCardAttributes)
+                return;
+
+            try
+            {
+                ActiveDirectoryCardStore.AssignCardToUser(user, rawToken);
+                Log("Token hash written to AD attribute for " + user);
+            }
+            catch (Exception ex)
+            {
+                Log("Failed to write token hash to AD: " + ex.Message);
+            }
         }
 
         private void RegisterCredential(string user, string password, string tokenId, string pluginName)

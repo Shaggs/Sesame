@@ -28,6 +28,9 @@ In `NFCRing.Service.Host.exe.config`, set:
   <add key="NFCRing.RegistrationPort" value="28417"/>
   <add key="NFCRing.ServiceHost" value="127.0.0.1"/>
   <add key="NFCRing.EnableRemoteTokenLookup" value="True"/>
+  <add key="NFCRing.EnableActiveDirectoryCardAttributes" value="True"/>
+  <add key="NFCRing.ADCardAttribute" value="extensionAttribute10"/>
+  <add key="NFCRing.ADCardHashSalt" value="replace-with-site-secret"/>
 </appSettings>
 ```
 
@@ -74,6 +77,11 @@ server/DC. Register the card against the domain user, preferably in
 `DOMAIN\username` format. The server stores the salted card hash and plugin
 assignment once; any workstation configured for remote lookup can use that
 assignment.
+
+If `NFCRing.EnableActiveDirectoryCardAttributes` is enabled, registration also
+writes the card hash to the configured AD user attribute. The service account
+must have write access to that user attribute. See `README-DC-Server.md` for the
+operator workflow.
 
 ## Current limits
 
