@@ -2,6 +2,9 @@
 
 NFC Fence provides NFC based login and logout functionality for the Microsoft Windows Operating System.  
 
+For the new domain controller/server workflow, including central card allocation
+to `DOMAIN\username` users, see [README-DC-Server.md](README-DC-Server.md).
+
 ## Important Disclaimer
 This software is in active development and should not be used in any environment you need stability. Make sure you remember your password as a backup.  Your Unicorns may be exploited.  You have been warned.
 
