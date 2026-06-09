@@ -753,43 +753,42 @@ namespace NFCRing.Service.Core
 
         private void RegisterCredential(string user, string password, string tokenId, string pluginName)
         {
-            string loggedInUser = GetCurrentUsername();
+            if (String.IsNullOrEmpty(user))
+                return;
+
+            string configuredUser = user;
             string domain = "";
-                // do some work
-            //if(loggedInUser.ToLower() == user.ToLower())
-            //{
-                // username and domain
-            domain = loggedInUser.Substring(0,loggedInUser.LastIndexOf('\\'));
-            user = user.Replace(domain + @"\", "");
-            //}
-            if (loggedInUser.Substring(loggedInUser.LastIndexOf('\\')+1).ToLower() == user.ToLower())
+            string username = user;
+            int slashIndex = user.LastIndexOf('\\');
+            if (slashIndex > 0 && slashIndex < user.Length - 1)
             {
-                // check to see if there is a domain?
+                domain = user.Substring(0, slashIndex);
+                username = user.Substring(slashIndex + 1);
+            }
 
-                // password is already encoded
-                foreach(User u in ApplicationConfiguration.Users)
+            // password is already encoded
+            foreach(User u in ApplicationConfiguration.Users)
+            {
+                if(String.Equals(u.Username, configuredUser, StringComparison.OrdinalIgnoreCase))
                 {
-                    if(u.Username.ToLower() == GetCurrentUsername().ToLower())
-                    {
-                        Lazy<INFCRingServicePlugin> lp = plugins.Where(x => x.Value.GetPluginName() == pluginName).FirstOrDefault();
-                        if (lp == null)
-                            break;
-                        Dictionary<string, object> p = new Dictionary<string, object>();
-                        if (lp.Value.GetParameters().Where(y => y.Name == "Username").FirstOrDefault() != null)
-                            p.Add("Username", user);
-                        if (lp.Value.GetParameters().Where(y => y.Name == "Password").FirstOrDefault() != null)
-                            p.Add("Password", password);
-                        if (lp.Value.GetParameters().Where(y => y.Name == "Domain").FirstOrDefault() != null)
-                            p.Add("Domain", domain);
-
-                        u.Events.Add(new Event()
-                        {
-                            PluginName = pluginName,
-                            Token = tokenId,
-                            Parameters = p
-                        });
+                    Lazy<INFCRingServicePlugin> lp = plugins.Where(x => x.Value.GetPluginName() == pluginName).FirstOrDefault();
+                    if (lp == null)
                         break;
-                    }
+                    Dictionary<string, object> p = new Dictionary<string, object>();
+                    if (lp.Value.GetParameters().Where(y => y.Name == "Username").FirstOrDefault() != null)
+                        p.Add("Username", username);
+                    if (lp.Value.GetParameters().Where(y => y.Name == "Password").FirstOrDefault() != null)
+                        p.Add("Password", password);
+                    if (lp.Value.GetParameters().Where(y => y.Name == "Domain").FirstOrDefault() != null)
+                        p.Add("Domain", domain);
+
+                    u.Events.Add(new Event()
+                    {
+                        PluginName = pluginName,
+                        Token = tokenId,
+                        Parameters = p
+                    });
+                    break;
                 }
             }
             SaveConfig();
