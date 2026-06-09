@@ -54,6 +54,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
+    <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -67,6 +68,7 @@
     <Compile Include="Enums.cs" />
     <Compile Include="INFCRingServicePlugin.cs" />
     <Compile Include="NetworkMessage.cs" />
+    <Compile Include="NetworkSettings.cs" />
     <Compile Include="PendingRegistration.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ServiceCommunication.cs" />

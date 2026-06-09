@@ -152,26 +152,7 @@ namespace NFCRing.Service.Core
                         }
                         else
                         {
-                            // check config
-                            foreach (User u in ApplicationConfiguration.Users)
-                            {
-                                string hashedToken = Crypto.Hash(Crypto.Hash(id) + u.Salt);
-                                foreach (Event e in u.Events)
-                                {
-                                    if (hashedToken == e.Token)
-                                    {
-                                        foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
-                                        {
-                                            if (plugin.Value.GetPluginName() == e.PluginName)
-                                            {
-                                                plugin.Value.NCFRingDown(id, e.Parameters, SystemStatus);
-
-                                                Log("Plugin " + plugin.Value.GetPluginName() + " passed TagDown event");
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            ExecuteTokenEvents(id, true);
                         }
                     }
                     currentTokens.Remove(id);
@@ -187,25 +168,7 @@ namespace NFCRing.Service.Core
                     }
                     else
                     {
-                        // check config
-                        foreach (User u in ApplicationConfiguration.Users)
-                        {
-                            string hashedToken = Crypto.Hash(Crypto.Hash(id) + u.Salt);
-                            foreach (Event e in u.Events)
-                            {
-                                if (hashedToken == e.Token)
-                                {
-                                    foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
-                                    {
-                                        if (plugin.Value.GetPluginName() == e.PluginName)
-                                        {
-                                            plugin.Value.NCFRingUp(id, e.Parameters, SystemStatus);
-                                            Log("Plugin " + plugin.Value.GetPluginName() + " passed TagUp event");
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        ExecuteTokenEvents(id, false);
                     }
                 }
                 currentTokens = ls;
@@ -214,6 +177,89 @@ namespace NFCRing.Service.Core
             }
             serialContext.Stop();
             Log("NFC Reading stopped");
+        }
+
+        private void ExecuteTokenEvents(string id, bool isTagDown)
+        {
+            UserServerState tokenState = ResolveToken(id);
+            if (tokenState == null || tokenState.UserConfiguration == null || tokenState.UserConfiguration.Events == null)
+                return;
+
+            foreach (Event e in tokenState.UserConfiguration.Events)
+            {
+                foreach (Lazy<INFCRingServicePlugin> plugin in plugins)
+                {
+                    if (plugin.Value.GetPluginName() == e.PluginName)
+                    {
+                        if (isTagDown)
+                        {
+                            plugin.Value.NCFRingDown(id, e.Parameters, SystemStatus);
+                            Log("Plugin " + plugin.Value.GetPluginName() + " passed TagDown event");
+                        }
+                        else
+                        {
+                            plugin.Value.NCFRingUp(id, e.Parameters, SystemStatus);
+                            Log("Plugin " + plugin.Value.GetPluginName() + " passed TagUp event");
+                        }
+                    }
+                }
+            }
+        }
+
+        private UserServerState ResolveToken(string id)
+        {
+            UserServerState localState = ResolveTokenFromConfig(id);
+            if (localState != null)
+                return localState;
+
+            if (!NetworkSettings.EnableRemoteTokenLookup || !NetworkSettings.IsRemoteServiceHostConfigured)
+                return null;
+
+            TcpClient client = null;
+            ServiceCommunication.SendNetworkMessage(ref client, JsonConvert.SerializeObject(new NetworkMessage(MessageType.ResolveToken) { Token = id }));
+            string response = ServiceCommunication.ReadNetworkMessage(ref client);
+            if (String.IsNullOrEmpty(response))
+                return null;
+
+            try
+            {
+                return JsonConvert.DeserializeObject<UserServerState>(response);
+            }
+            catch (Exception ex)
+            {
+                Log("Remote token lookup failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        private UserServerState ResolveTokenFromConfig(string id)
+        {
+            if (ApplicationConfiguration == null || ApplicationConfiguration.Users == null)
+                return null;
+
+            foreach (User u in ApplicationConfiguration.Users)
+            {
+                string hashedToken = Crypto.Hash(Crypto.Hash(id) + u.Salt);
+                List<Event> matchingEvents = u.Events == null
+                    ? new List<Event>()
+                    : u.Events.Where(e => e.Token == hashedToken).ToList();
+
+                if (matchingEvents.Count > 0)
+                {
+                    return new UserServerState()
+                    {
+                        UserConfiguration = new User()
+                        {
+                            Username = u.Username,
+                            Salt = u.Salt,
+                            Tokens = u.Tokens,
+                            Events = matchingEvents
+                        }
+                    };
+                }
+            }
+
+            return null;
         }
 
         public void Stop()
@@ -277,8 +323,8 @@ namespace NFCRing.Service.Core
                 credentialListener = null;
             }
 
-            credentialListener = new TcpListener(IPAddress.Loopback, 28416); // no reason
-            registrationListener = new TcpListener(IPAddress.Loopback, 28417); // no reason
+            credentialListener = new TcpListener(NetworkSettings.CredentialBindAddress, NetworkSettings.CredentialPort);
+            registrationListener = new TcpListener(NetworkSettings.RegistrationBindAddress, NetworkSettings.RegistrationPort);
 
             runListenLoops = true;
             // credential provider listener
@@ -452,6 +498,15 @@ namespace NFCRing.Service.Core
                                         uss.Plugins.Add(new PluginInfo() { Name = p.Value.GetPluginName(), Parameters = p.Value.GetParameters() });
                                     }
                                     ServiceCommunication.SendNetworkMessage(ref client, JsonConvert.SerializeObject(uss));
+                                    break;
+                                }
+                            case MessageType.ResolveToken:
+                                {
+                                    UserServerState tokenState = ResolveTokenFromConfig(nm.Token);
+                                    if (tokenState == null)
+                                        tokenState = new UserServerState();
+
+                                    ServiceCommunication.SendNetworkMessage(ref client, JsonConvert.SerializeObject(tokenState));
                                     break;
                                 }
                             case MessageType.Message:

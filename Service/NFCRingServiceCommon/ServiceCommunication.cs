@@ -43,10 +43,11 @@ namespace NFCRing.Service.Common
             {
                 if (!client.Connected)
                 {
-                    client.Connect(IPAddress.Loopback, 28417);
+                    client.Connect(NetworkSettings.ServiceHost, NetworkSettings.RegistrationPort);
                 }
-                client.GetStream().Write(Encoding.UTF8.GetBytes(message), 0, message.Length);
-                return message.Length;
+                byte[] messageBytes = Encoding.UTF8.GetBytes(message);
+                client.GetStream().Write(messageBytes, 0, messageBytes.Length);
+                return messageBytes.Length;
             }
             catch
             {

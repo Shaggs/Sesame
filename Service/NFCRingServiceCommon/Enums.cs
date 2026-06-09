@@ -20,6 +20,7 @@
         Message,
         Delete,
         RegisterAll,
-        UpdateFriendlyName
+        UpdateFriendlyName,
+        ResolveToken
     }
 }
